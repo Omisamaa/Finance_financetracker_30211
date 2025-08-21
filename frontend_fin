@@ -1,0 +1,108 @@
+# Frontend_fin.py
+# This file contains the Streamlit UI and imports functions from Backend_fin.py.
+
+import streamlit as st
+import pandas as pd
+from datetime import date
+# This is the correct and only place for this import statement.
+from backend_fin import read_transactions, add_transaction, get_aggregates, delete_transaction
+
+st.set_page_config(layout="wide")
+st.title("Financial Revenue and Expense Tracker")
+
+# -----------------
+# Business Insights & Aggregation Section
+# -----------------
+st.header("Financial Overview")
+aggregates = get_aggregates()
+total_revenue = aggregates['total_revenue']
+total_expense = aggregates['total_expense']
+total_count = aggregates['total_count']
+net_income = total_revenue - total_expense
+
+col1, col2, col3, col4 = st.columns(4)
+
+with col1:
+    st.metric(label="Total Transactions", value=total_count)
+
+with col2:
+    st.metric(label="Total Revenue", value=f"${total_revenue:,.2f}", delta=f"${net_income:,.2f} Net Income")
+
+with col3:
+    st.metric(label="Total Expenses", value=f"${total_expense:,.2f}")
+
+with col4:
+    st.subheader("Net Income")
+    if net_income >= 0:
+        st.success(f"${net_income:,.2f}", icon="📈")
+    else:
+        st.error(f"${net_income:,.2f}", icon="📉")
+
+# -----------------
+# CRUD - CREATE Section (Add New Transaction)
+# -----------------
+st.markdown("---")
+st.header("Add New Transaction")
+with st.form(key='add_transaction_form', clear_on_submit=True):
+    date_col, desc_col = st.columns(2)
+    with date_col:
+        new_date = st.date_input("Transaction Date", date.today())
+    with desc_col:
+        new_desc = st.text_input("Description")
+
+    amount_col, type_col = st.columns(2)
+    with amount_col:
+        new_amount = st.number_input("Amount", min_value=0.01, format="%.2f")
+    with type_col:
+        new_type = st.selectbox("Type", ["Revenue", "Expense"])
+
+    submit_button = st.form_submit_button(label='Add Transaction')
+    if submit_button:
+        success, message = add_transaction(new_date, new_desc, new_amount, new_type)
+        if success:
+            st.success(message)
+        else:
+            st.error(message)
+
+# -----------------
+# CRUD - READ Section (View & Filter Transactions)
+# -----------------
+st.markdown("---")
+st.header("All Transactions")
+
+# Filtering and Sorting Options
+filter_col, sort_col = st.columns(2)
+with filter_col:
+    filter_type = st.selectbox("Filter by Type", ['All', 'Revenue', 'Expense'])
+with sort_col:
+    sort_by = st.selectbox("Sort by", ['Date', 'Amount'])
+
+# Fetch transactions from the database
+transactions_data = read_transactions(filter_type, sort_by)
+
+if transactions_data:
+    # Convert list of tuples to a Pandas DataFrame for better display
+    df = pd.DataFrame(transactions_data, columns=['transaction_id', 'transaction_date', 'description', 'amount', 'type'])
+
+    # Add a 'Delete' button column to the DataFrame
+    df['Delete'] = [f"Delete {i}" for i in range(len(df))]
+
+    # Display the DataFrame
+    st.dataframe(df, use_container_width=True)
+
+    # Handle the 'Delete' button clicks
+    st.subheader("Delete a Transaction")
+    delete_id = st.text_input("Enter Transaction ID to delete:")
+    if st.button("Delete"):
+        if delete_id:
+            success, message = delete_transaction(delete_id)
+            if success:
+                st.success(message)
+                st.rerun()  # Rerun the app to show updated data
+            else:
+                st.error(message)
+        else:
+            st.warning("Please enter a Transaction ID.")
+
+else:
+    st.info("No transactions found. Add a new one above!")
