@@ -1,0 +1,164 @@
+
+# Backend_fin.py
+# This file handles all database operations. It does not contain any Streamlit code.
+
+import psycopg2
+import uuid
+from decimal import Decimal
+
+# Ensure you replace these with your actual PostgreSQL connection details
+DB_PARAMS = {
+    'dbname': 'finance_db',
+    'user': 'postgres',
+    'password': '413169',
+    'host': 'localhost',
+    'port': '5432'
+}
+
+def connect_db():
+    """Establishes and returns a connection to the PostgreSQL database."""
+    try:
+        conn = psycopg2.connect(**DB_PARAMS)
+        return conn
+    except Exception as e:
+        print(f"Error connecting to the database: {e}")
+        return None
+
+def create_transactions_table():
+    """Creates the 'transactions' table if it doesn't already exist."""
+    conn = connect_db()
+    if conn:
+        cursor = conn.cursor()
+        create_table_sql = """
+        CREATE TABLE IF NOT EXISTS transactions (
+            transaction_id VARCHAR(255) PRIMARY KEY,
+            transaction_date DATE NOT NULL,
+            description TEXT,
+            amount DECIMAL(10, 2) NOT NULL,
+            type VARCHAR(20) -- 'Revenue' or 'Expense'
+        );
+        """
+        try:
+            cursor.execute(create_table_sql)
+            conn.commit()
+            print("Table 'transactions' checked/created successfully.")
+        except Exception as e:
+            print(f"Error creating table: {e}")
+        finally:
+            cursor.close()
+            conn.close()
+
+def add_transaction(transaction_date, description, amount, type):
+    """
+    Adds a new transaction to the database.
+    This is the 'Create' function in CRUD.
+    """
+    conn = connect_db()
+    if conn:
+        cursor = conn.cursor()
+        transaction_id = str(uuid.uuid4())
+        sql = """
+        INSERT INTO transactions (transaction_id, transaction_date, description, amount, type)
+        VALUES (%s, %s, %s, %s, %s);
+        """
+        try:
+            cursor.execute(sql, (transaction_id, transaction_date, description, Decimal(amount), type))
+            conn.commit()
+            return True, "Transaction added successfully."
+        except Exception as e:
+            conn.rollback()
+            return False, f"Error adding transaction: {e}"
+        finally:
+            cursor.close()
+            conn.close()
+    return False, "Database connection failed."
+
+def read_transactions(filter_type, sort_by):
+    """
+    Reads all transactions from the database with optional filtering and sorting.
+    This is the 'Read' function in CRUD.
+    """
+    conn = connect_db()
+    transactions = []
+    if conn:
+        cursor = conn.cursor()
+        sql = "SELECT transaction_id, transaction_date, description, amount, type FROM transactions"
+        
+        # Add filtering condition
+        if filter_type != 'All':
+            sql += f" WHERE type = '{filter_type}'"
+        
+        # Add sorting condition
+        if sort_by == 'Amount':
+            sql += " ORDER BY amount DESC"
+        elif sort_by == 'Date':
+            sql += " ORDER BY transaction_date DESC"
+            
+        try:
+            cursor.execute(sql)
+            transactions = cursor.fetchall()
+            return transactions
+        except Exception as e:
+            print(f"Error reading transactions: {e}")
+        finally:
+            cursor.close()
+            conn.close()
+    return transactions
+
+def get_aggregates():
+    """
+    Calculates and returns aggregated financial data.
+    """
+    conn = connect_db()
+    aggregates = {
+        'total_count': 0,
+        'total_revenue': 0,
+        'total_expense': 0
+    }
+    if conn:
+        cursor = conn.cursor()
+        try:
+            # COUNT: Total number of transactions
+            cursor.execute("SELECT COUNT(*) FROM transactions;")
+            aggregates['total_count'] = cursor.fetchone()[0]
+
+            # SUM: Total Revenue
+            cursor.execute("SELECT SUM(amount) FROM transactions WHERE type = 'Revenue';")
+            revenue = cursor.fetchone()[0]
+            aggregates['total_revenue'] = revenue if revenue is not None else 0
+
+            # SUM: Total Expense
+            cursor.execute("SELECT SUM(amount) FROM transactions WHERE type = 'Expense';")
+            expense = cursor.fetchone()[0]
+            aggregates['total_expense'] = expense if expense is not None else 0
+
+        except Exception as e:
+            print(f"Error calculating aggregates: {e}")
+        finally:
+            cursor.close()
+            conn.close()
+    return aggregates
+
+def delete_transaction(transaction_id):
+    """
+    Deletes a transaction by its ID.
+    This is the 'Delete' function in CRUD.
+    """
+    conn = connect_db()
+    if conn:
+        cursor = conn.cursor()
+        sql = "DELETE FROM transactions WHERE transaction_id = %s;"
+        try:
+            cursor.execute(sql, (transaction_id,))
+            conn.commit()
+            return True, "Transaction deleted successfully."
+        except Exception as e:
+            conn.rollback()
+            return False, f"Error deleting transaction: {e}"
+        finally:
+            cursor.close()
+            conn.close()
+    return False, "Database connection failed."
+
+# Ensure the table exists when the application starts
+create_transactions_table()
